@@ -682,7 +682,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const setCredentialProviderFilter = useCallback((value: CredentialProviderFilterKey) => {
     setCredentialProviderFilterRaw(value);
     credentialsData.setAuthFilePage(1);
-  }, [credentialsData.setAuthFilePage]);
+    credentialsData.setAiProviderPage(1);
+  }, [credentialsData.setAuthFilePage, credentialsData.setAiProviderPage]);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
@@ -700,7 +701,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   );
   const credentialRowsForProviderFilter = useMemo(
     () => credentialsData.allIdentitiesForFilter
-      .filter((identity) => identity.auth_type === 1 && (!credentialsData.authFileActiveOnly || !identity.disabled))
+      .filter((identity) => !credentialsData.authFileActiveOnly || identity.auth_type !== 1 || !identity.disabled)
       .map((identity) => ({ identity })),
     [credentialsData.allIdentitiesForFilter, credentialsData.authFileActiveOnly],
   );
