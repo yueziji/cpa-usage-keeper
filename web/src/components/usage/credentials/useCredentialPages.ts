@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, fetchUsageIdentities, fetchUsageIdentitiesPage, type UsageIdentityPageSort } from '@/lib/api'
 import type { UsageIdentity } from '@/lib/types'
 import { CREDENTIALS_PAGE_SIZE } from './credentialViewModels'
+import type { CredentialProviderFilterKey } from './credentialProviderFilters'
 
 interface UseCredentialPagesOptions {
   enabled: boolean
   onAuthRequired?: () => void
+  providerFilter?: CredentialProviderFilterKey
 }
 
 export const CREDENTIAL_PAGES_REFRESH_INTERVAL_MS = 5 * 60 * 1000
@@ -44,7 +46,7 @@ export interface CredentialPagesState {
   refresh: () => Promise<void>
 }
 
-export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPagesOptions): CredentialPagesState {
+export function useCredentialPages({ enabled, onAuthRequired, providerFilter = 'all' }: UseCredentialPagesOptions): CredentialPagesState {
   const [authFileIdentities, setAuthFileIdentities] = useState<UsageIdentity[]>([])
   const [aiProviderIdentities, setAiProviderIdentities] = useState<UsageIdentity[]>([])
   const [allIdentitiesForFilter, setAllIdentitiesForFilter] = useState<UsageIdentity[]>([])
@@ -62,6 +64,7 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
   const [aiProviderSort, setAiProviderSortState] = useState<UsageIdentityPageSort>('total_requests')
   const [authFilesLoading, setAuthFilesLoading] = useState(false)
   const [aiProvidersLoading, setAiProvidersLoading] = useState(false)
+  const [allIdentitiesLoading, setAllIdentitiesLoading] = useState(false)
   const authFilesRequestControllerRef = useRef<AbortController | null>(null)
   const aiProvidersRequestControllerRef = useRef<AbortController | null>(null)
 
@@ -90,6 +93,10 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
   }, [])
 
   const refreshAuthFiles = useCallback(async () => {
+    // 过滤激活时改走 allIdentitiesForFilter 客户端分页，服务端分页结果会被丢弃，这里直接跳过减少无效请求。
+    if (providerFilter !== 'all') {
+      return
+    }
     authFilesRequestControllerRef.current?.abort()
     const controller = new AbortController()
     authFilesRequestControllerRef.current = controller
@@ -124,9 +131,12 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
         authFilesRequestControllerRef.current = null
       }
     }
-  }, [authFileActiveOnly, authFilePage, authFilePageSize, authFileSort, onAuthRequired])
+  }, [authFileActiveOnly, authFilePage, authFilePageSize, authFileSort, onAuthRequired, providerFilter])
 
   const refreshAiProviders = useCallback(async () => {
+    if (providerFilter !== 'all') {
+      return
+    }
     aiProvidersRequestControllerRef.current?.abort()
     const controller = new AbortController()
     aiProvidersRequestControllerRef.current = controller
@@ -161,13 +171,14 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
         aiProvidersRequestControllerRef.current = null
       }
     }
-  }, [aiProviderPage, aiProviderPageSize, aiProviderSort, onAuthRequired])
+  }, [aiProviderPage, aiProviderPageSize, aiProviderSort, onAuthRequired, providerFilter])
 
   const allIdentitiesControllerRef = useRef<AbortController | null>(null)
   const refreshAllIdentitiesForFilter = useCallback(async () => {
     allIdentitiesControllerRef.current?.abort()
     const controller = new AbortController()
     allIdentitiesControllerRef.current = controller
+    setAllIdentitiesLoading(true)
     try {
       const response = await fetchUsageIdentities(controller.signal)
       if (allIdentitiesControllerRef.current === controller) {
@@ -179,9 +190,14 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
         onAuthRequired?.()
         return
       }
+      // 清空 stale 数据，避免过滤视图继续展示上一次成功拉取的旧 identity 列表。
+      if (allIdentitiesControllerRef.current === controller) {
+        setAllIdentitiesForFilter([])
+      }
       setError(nextError instanceof Error ? nextError.message : 'Failed to load filter counts')
     } finally {
       if (allIdentitiesControllerRef.current === controller) {
+        setAllIdentitiesLoading(false)
         allIdentitiesControllerRef.current = null
       }
     }
@@ -262,7 +278,7 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
     setAuthFileActiveOnly,
     setAuthFileSort,
     setAiProviderSort,
-    loading: authFilesLoading || aiProvidersLoading,
+    loading: authFilesLoading || aiProvidersLoading || allIdentitiesLoading,
     error,
     refresh,
   }

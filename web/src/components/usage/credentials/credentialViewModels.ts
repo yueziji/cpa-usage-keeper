@@ -117,7 +117,12 @@ export function paginateCredentials<T>(items: T[], page: number, pageSize = CRED
 // 客户端排序对齐后端 ListActiveUsageIdentitiesPage 的排序规则，保证过滤激活时顺序一致。
 export function applyUsageIdentityClientSort(identities: UsageIdentity[], sort: UsageIdentityPageSort): UsageIdentity[] {
   const sorted = [...identities]
-  const byId = (a: UsageIdentity, b: UsageIdentity) => Number(a.id) - Number(b.id)
+  // 后端 id 是 int64，可能超过 Number.MAX_SAFE_INTEGER；用 BigInt 比较避免精度丢失导致排序与后端不一致。
+  const byId = (a: UsageIdentity, b: UsageIdentity) => {
+    const av = BigInt(a.id || '0')
+    const bv = BigInt(b.id || '0')
+    return av < bv ? -1 : av > bv ? 1 : 0
+  }
   switch (sort) {
     case 'priority':
       sorted.sort((a, b) => {

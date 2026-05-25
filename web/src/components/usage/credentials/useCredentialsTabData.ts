@@ -54,7 +54,7 @@ export interface CredentialsTabData {
 
 export function useCredentialsTabData({ enabled, onAuthRequired, providerFilter = 'all' }: UseCredentialsTabDataOptions): CredentialsTabData {
   // 页面 hook 只编排分页、缓存和刷新任务三层数据，不直接发散 API 调用。
-  const credentialPages = useCredentialPages({ enabled, onAuthRequired })
+  const credentialPages = useCredentialPages({ enabled, onAuthRequired, providerFilter })
   const isProviderFiltered = providerFilter !== 'all'
 
   // 过滤激活时切到客户端分页：从 allIdentitiesForFilter 取全量，按 auth_type / activeOnly / provider 过滤后再排序分页，
