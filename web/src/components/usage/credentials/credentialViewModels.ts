@@ -1,4 +1,5 @@
 import type { UsageIdentity, UsageQuotaRow } from '@/lib/types'
+import type { UsageIdentityPageSort } from '@/lib/api'
 import { calculateCacheRate, formatCompactTokenValue } from '@/utils/usage'
 
 export const CREDENTIALS_PAGE_SIZE = 10
@@ -111,6 +112,33 @@ export function paginateCredentials<T>(items: T[], page: number, pageSize = CRED
     total: items.length,
     totalPages,
   }
+}
+
+// 客户端排序对齐后端 ListActiveUsageIdentitiesPage 的排序规则，保证过滤激活时顺序一致。
+export function applyUsageIdentityClientSort(identities: UsageIdentity[], sort: UsageIdentityPageSort): UsageIdentity[] {
+  const sorted = [...identities]
+  const byId = (a: UsageIdentity, b: UsageIdentity) => Number(a.id) - Number(b.id)
+  switch (sort) {
+    case 'priority':
+      sorted.sort((a, b) => {
+        const aHas = a.priority !== undefined && a.priority !== null
+        const bHas = b.priority !== undefined && b.priority !== null
+        if (aHas !== bHas) return aHas ? -1 : 1
+        if (aHas && bHas && (a.priority ?? 0) !== (b.priority ?? 0)) {
+          return (b.priority ?? 0) - (a.priority ?? 0)
+        }
+        return byId(a, b)
+      })
+      break
+    case 'total_tokens':
+      sorted.sort((a, b) => (b.total_tokens - a.total_tokens) || byId(a, b))
+      break
+    case 'total_requests':
+    default:
+      sorted.sort((a, b) => (b.total_requests - a.total_requests) || byId(a, b))
+      break
+  }
+  return sorted
 }
 
 export function buildAuthFileCredentialRows(

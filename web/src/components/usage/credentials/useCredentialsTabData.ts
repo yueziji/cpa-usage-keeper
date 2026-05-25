@@ -1,11 +1,14 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import {
+  applyUsageIdentityClientSort,
   buildAiProviderCredentialRows,
   buildAuthFileCredentialRows,
+  paginateCredentials,
   selectQuotaEligibleAuthIndexes,
   type AiProviderCredentialRow,
   type AuthFileCredentialRow,
 } from './credentialViewModels'
+import { matchesCredentialProviderFilter, type CredentialProviderFilterKey } from './credentialProviderFilters'
 import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
 import type { UsageIdentityPageSort } from '@/lib/api'
@@ -15,6 +18,7 @@ import { quotaRefreshDisplayError, useQuotaRefreshTasks } from './useQuotaRefres
 interface UseCredentialsTabDataOptions {
   enabled: boolean
   onAuthRequired?: () => void
+  providerFilter?: CredentialProviderFilterKey
 }
 
 export interface CredentialsTabData {
@@ -48,13 +52,67 @@ export interface CredentialsTabData {
   refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
 }
 
-export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredentialsTabDataOptions): CredentialsTabData {
+export function useCredentialsTabData({ enabled, onAuthRequired, providerFilter = 'all' }: UseCredentialsTabDataOptions): CredentialsTabData {
   // 页面 hook 只编排分页、缓存和刷新任务三层数据，不直接发散 API 调用。
   const credentialPages = useCredentialPages({ enabled, onAuthRequired })
+  const isProviderFiltered = providerFilter !== 'all'
+
+  // 过滤激活时切到客户端分页：从 allIdentitiesForFilter 取全量，按 auth_type / activeOnly / provider 过滤后再排序分页，
+  // 避免「服务端分页 + 客户端过滤」导致的页数和每页条目数错乱。
+  const clientAuthFilesPage = useMemo(() => {
+    if (!isProviderFiltered) return null
+    const filtered = credentialPages.allIdentitiesForFilter
+      .filter((identity) => identity.auth_type === 1)
+      .filter((identity) => !credentialPages.authFileActiveOnly || !identity.disabled)
+      .filter((identity) => matchesCredentialProviderFilter({ identity }, providerFilter))
+    const sorted = applyUsageIdentityClientSort(filtered, credentialPages.authFileSort)
+    return paginateCredentials(sorted, credentialPages.authFilePage, credentialPages.authFilePageSize)
+  }, [
+    isProviderFiltered,
+    credentialPages.allIdentitiesForFilter,
+    credentialPages.authFileActiveOnly,
+    credentialPages.authFileSort,
+    credentialPages.authFilePage,
+    credentialPages.authFilePageSize,
+    providerFilter,
+  ])
+
+  const clientAiProvidersPage = useMemo(() => {
+    if (!isProviderFiltered) return null
+    const filtered = credentialPages.allIdentitiesForFilter
+      .filter((identity) => identity.auth_type === 2)
+      .filter((identity) => matchesCredentialProviderFilter({ identity }, providerFilter))
+    const sorted = applyUsageIdentityClientSort(filtered, credentialPages.aiProviderSort)
+    return paginateCredentials(sorted, credentialPages.aiProviderPage, credentialPages.aiProviderPageSize)
+  }, [
+    isProviderFiltered,
+    credentialPages.allIdentitiesForFilter,
+    credentialPages.aiProviderSort,
+    credentialPages.aiProviderPage,
+    credentialPages.aiProviderPageSize,
+    providerFilter,
+  ])
+
+  // 过滤后页码超出范围时把状态收敛到客户端裁剪后的页码，避免分页器停在不存在的页。
+  useEffect(() => {
+    if (clientAuthFilesPage && clientAuthFilesPage.page !== credentialPages.authFilePage) {
+      credentialPages.setAuthFilePage(clientAuthFilesPage.page)
+    }
+  }, [clientAuthFilesPage, credentialPages.authFilePage, credentialPages.setAuthFilePage])
+
+  useEffect(() => {
+    if (clientAiProvidersPage && clientAiProvidersPage.page !== credentialPages.aiProviderPage) {
+      credentialPages.setAiProviderPage(clientAiProvidersPage.page)
+    }
+  }, [clientAiProvidersPage, credentialPages.aiProviderPage, credentialPages.setAiProviderPage])
+
+  // 当前可见身份：过滤激活用客户端分页结果，否则用服务端分页结果。quota 缓存跟着可见身份走，保证过滤后也能看到限额。
+  const currentAuthFileIdentities = clientAuthFilesPage?.items ?? credentialPages.authFileIdentities
+  const currentAiProviderIdentities = clientAiProvidersPage?.items ?? credentialPages.aiProviderIdentities
+
   const currentAuthIndexes = useMemo(
-    // quota 只对当前 Auth Files 页生效，AI Provider 不参与缓存读取和刷新。
-    () => selectQuotaEligibleAuthIndexes(credentialPages.authFileIdentities),
-    [credentialPages.authFileIdentities],
+    () => selectQuotaEligibleAuthIndexes(currentAuthFileIdentities),
+    [currentAuthFileIdentities],
   )
   const { quotaByAuthIndex, cachedQuotaStateByAuthIndex, setQuotaByAuthIndex } = useQuotaCache({
     enabled,
@@ -80,26 +138,26 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
   }, [cachedQuotaStateByAuthIndex, quotaRefreshTasks.quotaStateByAuthIndex])
 
   const authFileRows = useMemo(
-    () => buildAuthFileCredentialRows(credentialPages.authFileIdentities, quotaRowsByAuthIndex, quotaStates),
-    [credentialPages.authFileIdentities, quotaRowsByAuthIndex, quotaStates],
+    () => buildAuthFileCredentialRows(currentAuthFileIdentities, quotaRowsByAuthIndex, quotaStates),
+    [currentAuthFileIdentities, quotaRowsByAuthIndex, quotaStates],
   )
   const aiProviderRows = useMemo(
-    () => buildAiProviderCredentialRows(credentialPages.aiProviderIdentities),
-    [credentialPages.aiProviderIdentities],
+    () => buildAiProviderCredentialRows(currentAiProviderIdentities),
+    [currentAiProviderIdentities],
   )
 
   return {
     authFileRows,
     aiProviderRows,
     allIdentitiesForFilter: credentialPages.allIdentitiesForFilter,
-    authFileTotal: credentialPages.authFileTotal,
-    aiProviderTotal: credentialPages.aiProviderTotal,
+    authFileTotal: clientAuthFilesPage?.total ?? credentialPages.authFileTotal,
+    aiProviderTotal: clientAiProvidersPage?.total ?? credentialPages.aiProviderTotal,
     authFilePageSize: credentialPages.authFilePageSize,
     aiProviderPageSize: credentialPages.aiProviderPageSize,
-    authFilePage: credentialPages.authFilePage,
-    aiProviderPage: credentialPages.aiProviderPage,
-    authFileTotalPages: credentialPages.authFileTotalPages,
-    aiProviderTotalPages: credentialPages.aiProviderTotalPages,
+    authFilePage: clientAuthFilesPage?.page ?? credentialPages.authFilePage,
+    aiProviderPage: clientAiProvidersPage?.page ?? credentialPages.aiProviderPage,
+    authFileTotalPages: clientAuthFilesPage?.totalPages ?? credentialPages.authFileTotalPages,
+    aiProviderTotalPages: clientAiProvidersPage?.totalPages ?? credentialPages.aiProviderTotalPages,
     authFileActiveOnly: credentialPages.authFileActiveOnly,
     authFileSort: credentialPages.authFileSort,
     aiProviderSort: credentialPages.aiProviderSort,

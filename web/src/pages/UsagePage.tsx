@@ -43,7 +43,7 @@ import {
   useChartData,
   useCredentialsTabData
 } from '@/components/usage';
-import { filterCredentialsByProvider, type CredentialProviderFilterKey } from '@/components/usage/credentials/credentialProviderFilters';
+import { type CredentialProviderFilterKey } from '@/components/usage/credentials/credentialProviderFilters';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import {
   getModelNamesFromUsage,
@@ -673,12 +673,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [pageVisible, setPageVisible] = useState(isUsagePageVisible);
+  const [credentialProviderFilter, setCredentialProviderFilterRaw] = useState<CredentialProviderFilterKey>('all');
   const credentialsData = useCredentialsTabData({
     enabled: activeTab === 'credentials' && pageVisible,
     onAuthRequired,
+    providerFilter: credentialProviderFilter,
   });
   const refreshCredentials = credentialsData.refresh;
-  const [credentialProviderFilter, setCredentialProviderFilterRaw] = useState<CredentialProviderFilterKey>('all');
   const setCredentialProviderFilter = useCallback((value: CredentialProviderFilterKey) => {
     setCredentialProviderFilterRaw(value);
     credentialsData.setAuthFilePage(1);
@@ -704,14 +705,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       .filter((identity) => !credentialsData.authFileActiveOnly || identity.auth_type !== 1 || !identity.disabled)
       .map((identity) => ({ identity })),
     [credentialsData.allIdentitiesForFilter, credentialsData.authFileActiveOnly],
-  );
-  const filteredAuthFileCredentialRows = useMemo(
-    () => filterCredentialsByProvider(credentialsData.authFileRows, credentialProviderFilter),
-    [credentialProviderFilter, credentialsData.authFileRows],
-  );
-  const filteredAiProviderCredentialRows = useMemo(
-    () => filterCredentialsByProvider(credentialsData.aiProviderRows, credentialProviderFilter),
-    [credentialProviderFilter, credentialsData.aiProviderRows],
   );
   const themeOptions = useMemo(
     () =>
@@ -1754,7 +1747,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 />
                 <div className={styles.credentialsSections}>
                   <AuthFileCredentialsSection
-                    rows={filteredAuthFileCredentialRows}
+                    rows={credentialsData.authFileRows}
                     total={credentialsData.authFileTotal}
                     page={credentialsData.authFilePage}
                     totalPages={credentialsData.authFileTotalPages}
@@ -1772,7 +1765,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
                   />
                   <AiProviderCredentialsSection
-                    rows={filteredAiProviderCredentialRows}
+                    rows={credentialsData.aiProviderRows}
                     total={credentialsData.aiProviderTotal}
                     page={credentialsData.aiProviderPage}
                     totalPages={credentialsData.aiProviderTotalPages}
