@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { UsageIdentity, UsageQuotaRow } from '@/lib/types'
 import {
   CREDENTIALS_PAGE_SIZE,
+  applyUsageIdentityClientSort,
   buildAiProviderCredentialRows,
   buildAuthFileCredentialRows,
   paginateCredentials,
@@ -18,6 +19,10 @@ function identity(overrides: Partial<UsageIdentity>): UsageIdentity {
     identity: overrides.identity ?? 'auth-1',
     type: overrides.type ?? 'claude',
     provider: overrides.provider ?? 'claude',
+    prefix: overrides.prefix ?? '',
+    priority: overrides.priority,
+    disabled: overrides.disabled ?? false,
+    note: overrides.note,
     plan_type: overrides.plan_type,
     total_requests: overrides.total_requests ?? 0,
     success_count: overrides.success_count ?? 0,
@@ -245,5 +250,85 @@ describe('credentialViewModels', () => {
     expect(rows[0].totalTokens).toBe(0)
     expect(rows[0].cacheRate).toBeNull()
     expect('primaryQuota' in rows[0]).toBe(false)
+  })
+})
+
+describe('applyUsageIdentityClientSort', () => {
+  it('sorts by priority descending, placing null/undefined last and using id ASC as tiebreaker', () => {
+    // 对齐后端 ORDER BY "priority IS NULL ASC, priority DESC, id ASC"。
+    const items = [
+      identity({ id: '3', priority: undefined, total_requests: 0 }),
+      identity({ id: '1', priority: 5, total_requests: 0 }),
+      identity({ id: '2', priority: 10, total_requests: 0 }),
+      identity({ id: '4', priority: 5, total_requests: 0 }),
+      identity({ id: '5', priority: undefined, total_requests: 0 }),
+    ]
+
+    const sorted = applyUsageIdentityClientSort(items, 'priority')
+
+    expect(sorted.map((row) => row.id)).toEqual(['2', '1', '4', '3', '5'])
+  })
+
+  it('treats priority 0 as present (not null) so it ranks above null priorities', () => {
+    const items = [
+      identity({ id: '2', priority: undefined, total_requests: 0 }),
+      identity({ id: '1', priority: 0, total_requests: 0 }),
+    ]
+
+    const sorted = applyUsageIdentityClientSort(items, 'priority')
+
+    expect(sorted.map((row) => row.id)).toEqual(['1', '2'])
+  })
+
+  it('sorts by total_tokens DESC with id ASC tiebreaker', () => {
+    const items = [
+      identity({ id: '1', total_tokens: 100 }),
+      identity({ id: '2', total_tokens: 200 }),
+      identity({ id: '3', total_tokens: 100 }),
+    ]
+
+    const sorted = applyUsageIdentityClientSort(items, 'total_tokens')
+
+    expect(sorted.map((row) => row.id)).toEqual(['2', '1', '3'])
+  })
+
+  it('sorts by total_requests DESC with id ASC tiebreaker', () => {
+    const items = [
+      identity({ id: '1', total_requests: 100 }),
+      identity({ id: '2', total_requests: 200 }),
+      identity({ id: '3', total_requests: 100 }),
+    ]
+
+    const sorted = applyUsageIdentityClientSort(items, 'total_requests')
+
+    expect(sorted.map((row) => row.id)).toEqual(['2', '1', '3'])
+  })
+
+  it('compares ids via BigInt so values beyond Number.MAX_SAFE_INTEGER tiebreak deterministically', () => {
+    // Number.MAX_SAFE_INTEGER 是 9007199254740991；用普通 Number 减法会把这两个 id 视为相等。
+    const big = '9007199254740993'
+    const bigger = '9007199254740995'
+    const items = [
+      identity({ id: bigger, total_requests: 0 }),
+      identity({ id: big, total_requests: 0 }),
+    ]
+
+    const sorted = applyUsageIdentityClientSort(items, 'total_requests')
+
+    expect(sorted.map((row) => row.id)).toEqual([big, bigger])
+  })
+
+  it('returns a new array and does not mutate the input', () => {
+    const items = [
+      identity({ id: '2', total_requests: 50 }),
+      identity({ id: '1', total_requests: 100 }),
+    ]
+    const originalOrder = items.map((row) => row.id)
+
+    const sorted = applyUsageIdentityClientSort(items, 'total_requests')
+
+    expect(sorted).not.toBe(items)
+    expect(items.map((row) => row.id)).toEqual(originalOrder)
+    expect(sorted.map((row) => row.id)).toEqual(['1', '2'])
   })
 })
