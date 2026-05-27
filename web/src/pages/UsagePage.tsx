@@ -702,7 +702,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   );
   const credentialRowsForProviderFilter = useMemo(
     () => credentialsData.allIdentitiesForFilter
-      .filter((identity) => !credentialsData.authFileActiveOnly || identity.auth_type !== 1 || !identity.disabled)
+      .filter((identity) => identity.auth_type === 2 || !credentialsData.authFileActiveOnly || !identity.disabled)
       .map((identity) => ({ identity })),
     [credentialsData.allIdentitiesForFilter, credentialsData.authFileActiveOnly],
   );
