@@ -67,6 +67,7 @@ export function useCredentialPages({ enabled, onAuthRequired, providerFilter = '
   const [allIdentitiesLoading, setAllIdentitiesLoading] = useState(false)
   const authFilesRequestControllerRef = useRef<AbortController | null>(null)
   const aiProvidersRequestControllerRef = useRef<AbortController | null>(null)
+  const allIdentitiesControllerRef = useRef<AbortController | null>(null)
 
   const setAuthFilePageSize = useCallback((pageSize: number) => {
     setAuthFilePage(1)
@@ -173,12 +174,12 @@ export function useCredentialPages({ enabled, onAuthRequired, providerFilter = '
     }
   }, [aiProviderPage, aiProviderPageSize, aiProviderSort, onAuthRequired, providerFilter])
 
-  const allIdentitiesControllerRef = useRef<AbortController | null>(null)
   const refreshAllIdentitiesForFilter = useCallback(async () => {
     allIdentitiesControllerRef.current?.abort()
     const controller = new AbortController()
     allIdentitiesControllerRef.current = controller
     setAllIdentitiesLoading(true)
+    setError('')
     try {
       const response = await fetchUsageIdentities(controller.signal)
       if (allIdentitiesControllerRef.current === controller) {
@@ -211,10 +212,15 @@ export function useCredentialPages({ enabled, onAuthRequired, providerFilter = '
     if (!enabled) {
       allIdentitiesControllerRef.current?.abort()
       allIdentitiesControllerRef.current = null
+      setAllIdentitiesLoading(false)
       return
     }
     void refreshAllIdentitiesForFilter()
+    const intervalID = window.setInterval(() => {
+      void refreshAllIdentitiesForFilter()
+    }, CREDENTIAL_PAGES_REFRESH_INTERVAL_MS)
     return () => {
+      window.clearInterval(intervalID)
       allIdentitiesControllerRef.current?.abort()
       allIdentitiesControllerRef.current = null
     }
